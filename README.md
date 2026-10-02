@@ -323,7 +323,7 @@ Số simulations càng lớn thì agent suy nghĩ lâu hơn nhưng thường t�
 Ví dụ:
 
 ```powershell
-python -m Go_rel.evaluate --games 10 --simulations 50
+python -m evaluate --games 10 --simulations 50
 ```
 
 `--simulations 50` nghĩa là mỗi nước đi MCTS chạy 50 lần mô phỏng.
@@ -349,7 +349,7 @@ python -m self_play --games 50 --simulations 50
 File dữ liệu mặc định:
 
 ```text
-Go_rel/data/self_play_latest.npz
+data/self_play_latest.npz
 ```
 
 Trong file này có:
@@ -413,11 +413,6 @@ Mở giao diện chơi với agent:
 python -m play_gui
 ```
 
-Nếu đang đứng trong folder `Go_rel`:
-
-```powershell
-python -m play_gui
-```
 
 Cho hai agent tự chơi với nhau trên GUI:
 
