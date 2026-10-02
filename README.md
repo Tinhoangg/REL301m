@@ -21,7 +21,7 @@ Environment chịu trách nhiệm quản lý:
 Khởi tạo:
 
 ```python
-from Go_rel.go_env import GoEnv
+from  .go_env import GoEnv
 
 env = GoEnv(size=9, komi=7.5)
 state = env.reset()
@@ -432,7 +432,7 @@ Trong GUI:
 Chạy test:
 
 ```powershell
-python -m unittest discover Go_rel/tests
+python -m unittest discover  /tests
 ```
 
 Sinh dữ liệu:
