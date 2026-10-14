@@ -66,10 +66,11 @@ class NetworkEvaluator:
 
 
 class MCTS:
-    def __init__(self, evaluator=None, num_simulations: int = 100, c_puct: float = 1.5):
+    def __init__(self, evaluator=None, num_simulations: int = 100, c_puct: float = 1.5, suppress_pass_until: int = 70):
         self.evaluator = evaluator or NetworkEvaluator()
         self.num_simulations = int(num_simulations)
         self.c_puct = float(c_puct)
+        self.suppress_pass_until = int(suppress_pass_until)
 
     def search(self, env, add_noise: bool = False, dirichlet_alpha: float = 0.3, exploration_fraction: float = 0.25):
         """Run MCTS from ``env`` and return a visit-count policy."""
@@ -109,6 +110,7 @@ class MCTS:
         """Return ``(action, policy)`` from MCTS visit counts."""
         policy = self.search(env, add_noise=add_noise)
         legal_actions = env.legal_actions()
+        legal_actions = self._search_legal_actions(env, legal_actions)
         if not legal_actions:
             return env.pass_action, policy
 
@@ -128,9 +130,22 @@ class MCTS:
 
     def _expand(self, node: Node, env) -> float:
         priors, value = self.evaluator.evaluate(env)
-        node.priors = {action: float(priors[action]) for action in env.legal_actions()}
+        legal_actions = self._search_legal_actions(env, env.legal_actions())
+        node.priors = {action: float(priors[action]) for action in legal_actions}
+        total = sum(node.priors.values())
+        if total <= 0.0 and legal_actions:
+            node.priors = {action: 1.0 / len(legal_actions) for action in legal_actions}
+        elif total > 0.0:
+            node.priors = {action: prior / total for action, prior in node.priors.items()}
         node.expanded = True
         return value
+
+    def _search_legal_actions(self, env, legal_actions: list[int]) -> list[int]:
+        if env.move_count < self.suppress_pass_until:
+            non_pass = [action for action in legal_actions if action != env.pass_action]
+            if non_pass:
+                return non_pass
+        return legal_actions
 
     def _select_action(self, node: Node) -> int:
         best_score = -float("inf")

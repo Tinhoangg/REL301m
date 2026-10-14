@@ -8,22 +8,26 @@ import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from Go_rel.config import DEFAULT_MAX_MOVES, DEFAULT_SIMULATIONS, KOMI, LATEST_CHECKPOINT_PATH
+    from Go_rel.config import BEST_CHECKPOINT_PATH, DEFAULT_MAX_MOVES, DEFAULT_SIMULATIONS, DEFAULT_SUPPRESS_PASS_UNTIL, KOMI, LATEST_CHECKPOINT_PATH
     from Go_rel.go_env import BLACK, WHITE, GoEnv
     from Go_rel.mcts import MCTS, NetworkEvaluator
     from Go_rel.model import PolicyValueNet, load_checkpoint
 else:
-    from .config import DEFAULT_MAX_MOVES, DEFAULT_SIMULATIONS, KOMI, LATEST_CHECKPOINT_PATH
+    from .config import BEST_CHECKPOINT_PATH, DEFAULT_MAX_MOVES, DEFAULT_SIMULATIONS, DEFAULT_SUPPRESS_PASS_UNTIL, KOMI, LATEST_CHECKPOINT_PATH
     from .go_env import BLACK, WHITE, GoEnv
     from .mcts import MCTS, NetworkEvaluator
     from .model import PolicyValueNet, load_checkpoint
 
 
-def load_or_random_model(path):
+def load_or_random_model(path, fallback_path=BEST_CHECKPOINT_PATH):
     path = Path(path)
     if path.exists():
         print(f"loaded checkpoint {path}")
         return load_checkpoint(path)
+    fallback_path = Path(fallback_path)
+    if fallback_path.exists():
+        print(f"checkpoint {path} not found; using fallback checkpoint {fallback_path}")
+        return load_checkpoint(fallback_path)
     print("checkpoint not found; using a random initialized network")
     return PolicyValueNet().eval()
 
@@ -39,10 +43,16 @@ def parse_human_action(text: str, env: GoEnv) -> int:
     return env.coord_to_action(row, col)
 
 
-def play(simulations: int = DEFAULT_SIMULATIONS, checkpoint=LATEST_CHECKPOINT_PATH, human_color: str = "black", max_moves: int = DEFAULT_MAX_MOVES):
+def play(
+    simulations: int = DEFAULT_SIMULATIONS,
+    checkpoint=LATEST_CHECKPOINT_PATH,
+    human_color: str = "black",
+    max_moves: int = DEFAULT_MAX_MOVES,
+    suppress_pass_until: int = DEFAULT_SUPPRESS_PASS_UNTIL,
+):
     env = GoEnv(size=9, komi=KOMI)
     model = load_or_random_model(checkpoint)
-    mcts = MCTS(NetworkEvaluator(model), num_simulations=simulations)
+    mcts = MCTS(NetworkEvaluator(model), num_simulations=simulations, suppress_pass_until=suppress_pass_until)
     human = BLACK if human_color.lower() == "black" else WHITE
 
     while not env.done and env.move_count < max_moves:
@@ -81,8 +91,15 @@ def main():
     parser.add_argument("--checkpoint", default=str(LATEST_CHECKPOINT_PATH))
     parser.add_argument("--human-color", choices=["black", "white"], default="black")
     parser.add_argument("--max-moves", type=int, default=DEFAULT_MAX_MOVES)
+    parser.add_argument("--suppress-pass-until", type=int, default=DEFAULT_SUPPRESS_PASS_UNTIL)
     args = parser.parse_args()
-    play(simulations=args.simulations, checkpoint=args.checkpoint, human_color=args.human_color, max_moves=args.max_moves)
+    play(
+        simulations=args.simulations,
+        checkpoint=args.checkpoint,
+        human_color=args.human_color,
+        max_moves=args.max_moves,
+        suppress_pass_until=args.suppress_pass_until,
+    )
 
 
 if __name__ == "__main__":

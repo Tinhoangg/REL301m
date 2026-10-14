@@ -1,0 +1,12 @@
+__pycache__/
+checkpoints/
+data/
+results/
+tests/
+venv/
+gtp_logs/
+report_assets/
+report_output/
+results/
+.deck_build/
+external/

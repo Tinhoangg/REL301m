@@ -12,12 +12,12 @@ from tkinter import messagebox, ttk
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from Go_rel.config import DEFAULT_MAX_MOVES, KOMI, LATEST_CHECKPOINT_PATH
+    from Go_rel.config import BEST_CHECKPOINT_PATH, DEFAULT_MAX_MOVES, DEFAULT_SUPPRESS_PASS_UNTIL, KOMI, LATEST_CHECKPOINT_PATH
     from Go_rel.go_env import BLACK, EMPTY, WHITE, GoEnv
     from Go_rel.mcts import MCTS, NetworkEvaluator
     from Go_rel.model import PolicyValueNet, load_checkpoint
 else:
-    from .config import DEFAULT_MAX_MOVES, KOMI, LATEST_CHECKPOINT_PATH
+    from .config import BEST_CHECKPOINT_PATH, DEFAULT_MAX_MOVES, DEFAULT_SUPPRESS_PASS_UNTIL, KOMI, LATEST_CHECKPOINT_PATH
     from .go_env import BLACK, EMPTY, WHITE, GoEnv
     from .mcts import MCTS, NetworkEvaluator
     from .model import PolicyValueNet, load_checkpoint
@@ -82,11 +82,14 @@ def format_status(env: GoEnv, human_color: int, thinking: bool = False, agent_vs
     )
 
 
-def load_or_random_model(path):
+def load_or_random_model(path, fallback_path=BEST_CHECKPOINT_PATH):
     """Load a checkpoint if present, otherwise return a random network."""
     path = Path(path)
     if path.exists():
         return load_checkpoint(path), f"Loaded checkpoint: {path}"
+    fallback_path = Path(fallback_path)
+    if fallback_path.exists():
+        return load_checkpoint(fallback_path), f"Checkpoint {path} not found; loaded fallback: {fallback_path}"
     return PolicyValueNet().eval(), "No checkpoint found; using random network"
 
 
@@ -100,12 +103,14 @@ class GoWindow:
         checkpoint=LATEST_CHECKPOINT_PATH,
         human_color: int = BLACK,
         max_moves: int = DEFAULT_MAX_MOVES,
+        suppress_pass_until: int = DEFAULT_SUPPRESS_PASS_UNTIL,
     ):
         self.root = root
         self.root.title("Go 9x9 RL Agent")
         self.env = GoEnv(size=9, komi=KOMI)
         self.human_color = human_color
         self.max_moves = int(max_moves)
+        self.suppress_pass_until = int(suppress_pass_until)
         self.last_action = None
         self.thinking = False
         self.agent_vs_agent = False
@@ -335,7 +340,11 @@ class GoWindow:
 
         def worker():
             try:
-                mcts = MCTS(NetworkEvaluator(self.model), num_simulations=simulations)
+                mcts = MCTS(
+                    NetworkEvaluator(self.model),
+                    num_simulations=simulations,
+                    suppress_pass_until=self.suppress_pass_until,
+                )
                 action, _ = mcts.select_action(env_snapshot, temperature=1e-6)
                 self.agent_queue.put((token, action, None))
             except Exception as exc:  # pragma: no cover - defensive GUI path
@@ -414,6 +423,7 @@ def main():
     parser.add_argument("--auto-play", action="store_true", help="start with two agents playing each other")
     parser.add_argument("--auto-delay", type=int, default=350)
     parser.add_argument("--max-moves", type=int, default=DEFAULT_MAX_MOVES)
+    parser.add_argument("--suppress-pass-until", type=int, default=DEFAULT_SUPPRESS_PASS_UNTIL)
     args = parser.parse_args()
 
     human_color = BLACK if args.human_color == "black" else WHITE
@@ -424,6 +434,7 @@ def main():
         checkpoint=args.checkpoint,
         human_color=human_color,
         max_moves=args.max_moves,
+        suppress_pass_until=args.suppress_pass_until,
     )
     app.auto_delay_var.set(max(0, args.auto_delay))
     if args.auto_play:

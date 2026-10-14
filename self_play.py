@@ -15,7 +15,9 @@ if __package__ in (None, ""):
         DEFAULT_GAMES,
         DEFAULT_MAX_MOVES,
         DEFAULT_SIMULATIONS,
+        DEFAULT_SUPPRESS_PASS_UNTIL,
         DEFAULT_TEMPERATURE_MOVES,
+        BEST_CHECKPOINT_PATH,
         KOMI,
         LATEST_CHECKPOINT_PATH,
         LATEST_DATA_PATH,
@@ -30,7 +32,9 @@ else:
         DEFAULT_GAMES,
         DEFAULT_MAX_MOVES,
         DEFAULT_SIMULATIONS,
+        DEFAULT_SUPPRESS_PASS_UNTIL,
         DEFAULT_TEMPERATURE_MOVES,
+        BEST_CHECKPOINT_PATH,
         KOMI,
         LATEST_CHECKPOINT_PATH,
         LATEST_DATA_PATH,
@@ -41,19 +45,51 @@ else:
     from .replay import replay_dataset
 
 
-def load_model_if_available(path):
+def load_model_if_available(path, fallback_path=BEST_CHECKPOINT_PATH, size: int = 9):
+    expected_size = int(size)
     path = Path(path)
     if path.exists():
-        return load_checkpoint(path)
+        print(f"loaded checkpoint {path}")
+        model = load_checkpoint(path)
+        if model.board_size == expected_size:
+            return model
+        print(f"checkpoint {path} has board size {model.board_size}; expected {expected_size}; using random network")
+        return None
+    fallback_path = Path(fallback_path)
+    if fallback_path.exists():
+        model = load_checkpoint(fallback_path)
+        if model.board_size == expected_size:
+            print(f"checkpoint {path} not found; using fallback checkpoint {fallback_path}")
+            return model
+        print(
+            f"checkpoint {path} not found; fallback {fallback_path} has board size "
+            f"{model.board_size}; expected {expected_size}; using random network"
+        )
+        return None
+    print("no checkpoint found; using a random initialized network")
     return None
 
 
-def play_game(model=None, size: int = 9, komi: float = KOMI, simulations: int = DEFAULT_SIMULATIONS, max_moves: int = DEFAULT_MAX_MOVES):
+def play_game(
+    model=None,
+    size: int = 9,
+    komi: float = KOMI,
+    simulations: int = DEFAULT_SIMULATIONS,
+    max_moves: int = DEFAULT_MAX_MOVES,
+    suppress_pass_until: int = DEFAULT_SUPPRESS_PASS_UNTIL,
+    return_actions: bool = False,
+):
     env = GoEnv(size=size, komi=komi)
-    mcts = MCTS(NetworkEvaluator(model), num_simulations=simulations, c_puct=DEFAULT_C_PUCT)
+    mcts = MCTS(
+        NetworkEvaluator(model),
+        num_simulations=simulations,
+        c_puct=DEFAULT_C_PUCT,
+        suppress_pass_until=suppress_pass_until,
+    )
     states = []
     policies = []
     players = []
+    actions = []
 
     while not env.done and env.move_count < max_moves:
         states.append(env.encode())
@@ -61,10 +97,19 @@ def play_game(model=None, size: int = 9, komi: float = KOMI, simulations: int = 
         temperature = 1.0 if env.move_count < DEFAULT_TEMPERATURE_MOVES else 1e-6
         action, policy = mcts.select_action(env, temperature=temperature, add_noise=True)
         policies.append(policy)
+        actions.append(action)
         env.step(action)
 
     winner = env.winner()
     values = [0.0 if winner == 0 else (1.0 if player == winner else -1.0) for player in players]
+    if return_actions:
+        return (
+            np.asarray(states, dtype=np.float32),
+            np.asarray(policies, dtype=np.float32),
+            np.asarray(values, dtype=np.float32),
+            winner,
+            np.asarray(actions, dtype=np.int32),
+        )
     return np.asarray(states, dtype=np.float32), np.asarray(policies, dtype=np.float32), np.asarray(values, dtype=np.float32), winner
 
 
@@ -76,8 +121,9 @@ def generate_self_play(
     size: int = 9,
     komi: float = KOMI,
     max_moves: int = DEFAULT_MAX_MOVES,
+    suppress_pass_until: int = DEFAULT_SUPPRESS_PASS_UNTIL,
 ):
-    model = load_model_if_available(checkpoint_path)
+    model = load_model_if_available(checkpoint_path, size=size)
     all_states = []
     all_policies = []
     all_values = []
@@ -91,6 +137,7 @@ def generate_self_play(
             komi=komi,
             simulations=simulations,
             max_moves=max_moves,
+            suppress_pass_until=suppress_pass_until,
         )
         all_states.append(states)
         all_policies.append(policies)
@@ -124,6 +171,7 @@ def main():
     parser.add_argument("--max-moves", type=int, default=DEFAULT_MAX_MOVES)
     parser.add_argument("--output", default=str(LATEST_DATA_PATH))
     parser.add_argument("--checkpoint", default=str(LATEST_CHECKPOINT_PATH))
+    parser.add_argument("--suppress-pass-until", type=int, default=DEFAULT_SUPPRESS_PASS_UNTIL)
     parser.add_argument("--replay", action="store_true", help="quickly replay generated games in the terminal")
     parser.add_argument("--replay-delay", type=float, default=0.05)
     args = parser.parse_args()
@@ -133,6 +181,7 @@ def main():
         max_moves=args.max_moves,
         output_path=args.output,
         checkpoint_path=args.checkpoint,
+        suppress_pass_until=args.suppress_pass_until,
     )
     if args.replay:
         replay_dataset(output_path, delay=args.replay_delay)

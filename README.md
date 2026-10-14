@@ -21,7 +21,7 @@ Environment chịu trách nhiệm quản lý:
 Khởi tạo:
 
 ```python
-from  .go_env import GoEnv
+from Go_rel.go_env import GoEnv
 
 env = GoEnv(size=9, komi=7.5)
 state = env.reset()
@@ -323,7 +323,7 @@ Số simulations càng lớn thì agent suy nghĩ lâu hơn nhưng thường t�
 Ví dụ:
 
 ```powershell
-python -m evaluate --games 10 --simulations 50
+python -m Go_rel.evaluate --games 10 --simulations 50
 ```
 
 `--simulations 50` nghĩa là mỗi nước đi MCTS chạy 50 lần mô phỏng.
@@ -349,7 +349,7 @@ python -m self_play --games 50 --simulations 50
 File dữ liệu mặc định:
 
 ```text
-data/self_play_latest.npz
+Go_rel/data/self_play_latest.npz
 ```
 
 Trong file này có:
@@ -382,17 +382,41 @@ Mặc định lưu checkpoint:
 checkpoints/latest.pt
 ```
 
+Khi sinh self-play hoặc mở agent để chơi, code sẽ ưu tiên `checkpoints/latest.pt` nếu có. Nếu chưa có `latest.pt` nhưng đã có `checkpoints/best.pt`, chương trình sẽ tự dùng `best.pt` thay vì rơi về model random.
+
 Xem nhanh các game trước khi train:
 
 ```powershell
 python -m train --epochs 10 --replay-games --replay-delay 0.05
 ```
 
-## 13. Evaluation
+Sau khi train, chương trình tự lưu biểu đồ loss để đưa vào báo cáo:
 
-Đánh giá agent với random baseline:
+```text
+results/training_history.csv
+results/training_losses.png
+```
+
+Nếu muốn đổi vị trí lưu:
 
 ```powershell
+python -m train --epochs 10 --history-path results/my_history.csv --plot-path results/my_training_plot.png
+```
+
+## 13. Evaluation
+
+Đánh giá agent với KataGo:
+
+```powershell
+python -m evaluate --games 10 --simulations 50 --katago-path C:\katago\katago.exe --katago-model C:\katago\model.bin.gz --katago-config C:\katago\gtp.cfg
+```
+
+KataGo đóng vai trò giống Stockfish bên cờ vua: một engine mạnh hơn nhiều để kiểm tra model của mình có thật sự chơi tốt không. Nếu không muốn gõ đường dẫn mỗi lần, có thể set biến môi trường:
+
+```powershell
+$env:KATAGO_PATH="C:\katago\katago.exe"
+$env:KATAGO_MODEL="C:\katago\model.bin.gz"
+$env:KATAGO_CONFIG="C:\katago\gtp.cfg"
 python -m evaluate --games 10 --simulations 50
 ```
 
@@ -405,7 +429,89 @@ draws
 win_rate
 ```
 
-## 14. GUI
+Nếu chưa cài KataGo và chỉ muốn model mới đấu với model cũ:
+
+```powershell
+python -m evaluate --opponent checkpoint --opponent-checkpoint checkpoints/best.pt --games 10 --simulations 50
+```
+
+## 14. Auto-train loop
+
+Chạy vòng lặp self-play và train liên tục:
+
+```powershell
+python -m auto_train --games 50 --simulations 50 --epochs 10
+```
+
+Nếu chạy từ ngoài folder `Go_rel`:
+
+```powershell
+python -m Go_rel.auto_train --games 50 --simulations 50 --epochs 10
+```
+
+Mặc định chương trình lặp vô hạn cho đến khi bấm `Ctrl+C`.
+
+Muốn chạy số vòng cố định:
+
+```powershell
+python -m auto_train --iterations 5 --games 50 --simulations 50 --epochs 10
+```
+
+Mỗi vòng sẽ lưu:
+
+```text
+data/auto/self_play_iter_0001.npz
+checkpoints/auto/latest_iter_0001.pt
+results/auto/training_history_iter_0001.csv
+results/auto/training_losses_iter_0001.png
+results/auto/auto_train_log.csv
+```
+
+Đồng thời cập nhật bản mới nhất:
+
+```text
+data/self_play_latest.npz
+checkpoints/latest.pt
+results/training_history.csv
+results/training_losses.png
+```
+
+`auto_train_log.csv` dùng để vẽ thêm các biểu đồ như game length, pass rate, số ván thắng của đen/trắng và final loss theo từng iteration.
+
+## 15. Arena: model mới đấu với model cũ
+
+Arena dùng để kiểm tra model mới có thật sự tốt hơn model cũ không trước khi thay thế.
+
+Pipeline chuẩn hơn:
+
+```text
+best.pt -> self-play -> train candidate.pt -> candidate đấu với best -> nếu thắng đủ thì promote
+```
+
+Các checkpoint chính:
+
+```text
+Go_rel/checkpoints/best.pt       = model tốt nhất hiện tại
+Go_rel/checkpoints/candidate.pt  = model mới train
+Go_rel/checkpoints/latest.pt     = checkpoint train nhanh/mặc định
+```
+
+Một vòng chạy mẫu:
+
+```powershell
+python -m self_play --games 100 --simulations 50 --checkpoint checkpoints/best.pt
+python -m train --epochs 10 --save-path checkpoints/candidate.pt
+python -m arena --candidate checkpoints/candidate.pt --best checkpoints/best.pt --games 20 --simulations 50 --threshold 0.55
+```
+
+Ý nghĩa:
+
+- `candidate.pt` là model mới;
+- `best.pt` là model cũ tốt nhất;
+- nếu candidate thắng ít nhất `55%` các ván quyết định thì được copy thành `best.pt`;
+- nếu không đủ, giữ lại `best.pt` cũ.
+
+## 16. GUI
 
 Mở giao diện chơi với agent:
 
@@ -413,6 +519,11 @@ Mở giao diện chơi với agent:
 python -m play_gui
 ```
 
+Nếu đang đứng trong folder `Go_rel`:
+
+```powershell
+python -m play_gui
+```
 
 Cho hai agent tự chơi với nhau trên GUI:
 
@@ -427,12 +538,12 @@ Trong GUI:
 - `Simulations`: số lần MCTS search mỗi nước;
 - `Auto delay ms`: tốc độ xem hai agent tự đánh.
 
-## 15. Các lệnh thường dùng
+## 17. Các lệnh thường dùng
 
 Chạy test:
 
 ```powershell
-python -m unittest discover  /tests
+python -m unittest discover Go_rel/tests
 ```
 
 Sinh dữ liệu:
@@ -445,6 +556,24 @@ Train:
 
 ```powershell
 python -m train --epochs 10
+```
+
+Auto-train liên tục:
+
+```powershell
+python -m auto_train --games 50 --simulations 50 --epochs 10
+```
+
+Lệnh train cũng xuất biểu đồ:
+
+```text
+results/training_losses.png
+```
+
+Mặc định `train.py` sẽ cố gắng load checkpoint phù hợp để train tiếp, thay vì luôn học lại từ đầu. Nếu muốn chỉ rõ checkpoint ban đầu:
+
+```powershell
+python -m train --epochs 10 --init-checkpoint checkpoints/best.pt --save-path checkpoints/candidate.pt
 ```
 
 Evaluate:
@@ -465,6 +594,23 @@ Chơi GUI:
 python -m play_gui --simulations 25
 ```
 
+Candidate đấu với best:
+
+```powershell
+python -m arena --games 20 --simulations 50
+```
+
+Giảm việc agent pass quá sớm:
+
+```powershell
+python -m self_play --games 100 --simulations 50 --suppress-pass-until 70
+python -m evaluate --games 10 --simulations 50 --suppress-pass-until 70
+python -m play_gui --auto-play --simulations 10 --suppress-pass-until 70
+```
+
+Với bàn 9x9 có 81 giao điểm, `--suppress-pass-until 70` chỉ áp dụng trong MCTS/self-play/agent để tránh dữ liệu ban đầu dạy model pass quá sớm. Environment vẫn giữ luật Go thật: pass luôn là nước hợp lệ.
+
+## 18. Lưu ý về chất lượng agent
 
 Pipeline hiện tại:
 
@@ -483,4 +629,3 @@ python -m self_play --games 100 --simulations 100
 python -m train --epochs 10
 python -m evaluate --games 20 --simulations 100
 ```
-
