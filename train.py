@@ -66,6 +66,8 @@ def train(
     plot_path=TRAINING_PLOT_PATH,
     save_plot: bool = True,
     interrupted_checkpoint_path=None,
+    resume_checkpoint=None,
+    epoch_callback=None,
     return_history: bool = False,
     device=None,
 ):
@@ -78,14 +80,24 @@ def train(
     board_size = int(sample_state.shape[-1])
     action_size = int(sample_policy.shape[-1])
 
-    init_path = choose_init_checkpoint(init_checkpoint, save_path)
+    resume_path = Path(resume_checkpoint) if resume_checkpoint else None
+    init_path = resume_path if resume_path is not None and resume_path.exists() else choose_init_checkpoint(init_checkpoint, save_path)
     model = None
+    resume_payload = None
     if init_path is not None:
+        if resume_path is not None and init_path == resume_path:
+            resume_payload = torch.load(init_path, map_location=device)
         candidate_model = load_checkpoint(init_path, device=device)
         if candidate_model.action_size == action_size and candidate_model.board_size == board_size:
             model = candidate_model
-            print(f"loaded initial checkpoint from {init_path}")
+            label = "resume" if resume_payload is not None else "initial"
+            print(f"loaded {label} checkpoint from {init_path}")
         else:
+            if resume_payload is not None:
+                raise ValueError(
+                    f"resume checkpoint {init_path} is incompatible with dataset shape "
+                    f"(model action size {candidate_model.action_size}, dataset action size {action_size})"
+                )
             print(
                 f"skipped checkpoint {init_path}: model action size {candidate_model.action_size} "
                 f"does not match dataset action size {action_size}"
@@ -95,11 +107,53 @@ def train(
         print("training from a random initialized model")
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     history = []
+    completed_epochs = 0
+    if resume_payload is not None:
+        extra = resume_payload.get("extra", {})
+        saved_data_path = extra.get("data_path")
+        if saved_data_path and Path(saved_data_path).resolve() != Path(data_path).resolve():
+            raise ValueError(
+                f"resume checkpoint dataset {saved_data_path} does not match requested dataset {data_path}"
+            )
+        if "optimizer_state_dict" in resume_payload:
+            optimizer.load_state_dict(resume_payload["optimizer_state_dict"])
+        completed_epochs = int(extra.get("epochs_completed", 0))
+        history = list(extra.get("history", []))
+        if not history and completed_epochs:
+            history = load_training_history(history_path)
+        if len(history) != completed_epochs:
+            raise ValueError(
+                f"resume checkpoint reports {completed_epochs} completed epochs, "
+                f"but its history contains {len(history)} rows"
+            )
+        if completed_epochs > epochs:
+            raise ValueError(
+                f"resume checkpoint already completed {completed_epochs} epochs, "
+                f"which exceeds the configured target of {epochs}"
+            )
+        print(f"resuming training after epoch {completed_epochs}/{epochs}")
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    def save_resume_checkpoint():
+        if interrupted_checkpoint_path is None:
+            return
+        save_checkpoint(
+            model,
+            interrupted_checkpoint_path,
+            optimizer=optimizer,
+            extra={
+                "data_path": str(Path(data_path).resolve()),
+                "epochs_completed": len(history),
+                "history": history,
+                "interrupted": True,
+            },
+        )
+
+    save_resume_checkpoint()
 
     try:
-        for epoch in range(1, epochs + 1):
+        for epoch in range(completed_epochs + 1, epochs + 1):
             model.train()
             total_loss = 0.0
             total_policy_loss = 0.0
@@ -135,14 +189,12 @@ def train(
                     "value_loss": total_value_loss / n,
                 }
             )
+            save_training_history(history, history_path)
+            save_resume_checkpoint()
+            if epoch_callback is not None:
+                epoch_callback(epoch, history)
     except KeyboardInterrupt:
         if interrupted_checkpoint_path is not None:
-            save_checkpoint(
-                model,
-                interrupted_checkpoint_path,
-                optimizer=optimizer,
-                extra={"data_path": str(data_path), "epochs_completed": len(history), "interrupted": True},
-            )
             print(f"saved interrupted checkpoint to {interrupted_checkpoint_path}")
         if history:
             save_training_history(history, history_path)
@@ -172,6 +224,25 @@ def save_training_history(history, path):
         writer = csv.DictWriter(file, fieldnames=["epoch", "loss", "policy_loss", "value_loss"])
         writer.writeheader()
         writer.writerows(history)
+
+
+def load_training_history(path):
+    """Load a previously saved epoch history for interrupted training."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open("r", newline="", encoding="utf-8") as file:
+        rows = []
+        for row in csv.DictReader(file):
+            rows.append(
+                {
+                    "epoch": int(row["epoch"]),
+                    "loss": float(row["loss"]),
+                    "policy_loss": float(row["policy_loss"]),
+                    "value_loss": float(row["value_loss"]),
+                }
+            )
+    return rows
 
 
 def plot_training_history(history, path):

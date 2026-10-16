@@ -79,7 +79,9 @@ def save_checkpoint(model: PolicyValueNet, path, optimizer=None, extra=None):
     }
     if optimizer is not None:
         payload["optimizer_state_dict"] = optimizer.state_dict()
-    torch.save(payload, path)
+    temporary = path.with_name(f"{path.name}.tmp")
+    torch.save(payload, temporary)
+    temporary.replace(path)
 
 
 def load_checkpoint(path, device=None) -> PolicyValueNet:

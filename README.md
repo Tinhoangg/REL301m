@@ -411,7 +411,7 @@ python -m train --epochs 10 --history-path results/my_history.csv --plot-path re
 python -m evaluate --games 10 --simulations 50 --katago-path C:\katago\katago.exe --katago-model C:\katago\model.bin.gz --katago-config C:\katago\gtp.cfg
 ```
 
-KataGo đóng vai trò giống Stockfish bên cờ vua: một engine mạnh hơn nhiều để kiểm tra model của mình có thật sự chơi tốt không. Nếu không muốn gõ đường dẫn mỗi lần, có thể set biến môi trường:
+KataGo đóng vai trò giống Stockfish bên cờ vua: một engine mạnh hơn nhiều để kiểm tra model của mình có thật sự chơi tốt không. 
 
 ```powershell
 $env:KATAGO_PATH="C:\katago\katago.exe"
@@ -478,57 +478,12 @@ results/training_losses.png
 
 `auto_train_log.csv` dùng để vẽ thêm các biểu đồ như game length, pass rate, số ván thắng của đen/trắng và final loss theo từng iteration.
 
-## 15. Arena: model mới đấu với model cũ
-
-Arena dùng để kiểm tra model mới có thật sự tốt hơn model cũ không trước khi thay thế.
-
-Pipeline chuẩn hơn:
-
-```text
-best.pt -> self-play -> train candidate.pt -> candidate đấu với best -> nếu thắng đủ thì promote
-```
-
-Các checkpoint chính:
-
-```text
-Go_rel/checkpoints/best.pt       = model tốt nhất hiện tại
-Go_rel/checkpoints/candidate.pt  = model mới train
-Go_rel/checkpoints/latest.pt     = checkpoint train nhanh/mặc định
-```
-
-Một vòng chạy mẫu:
-
-```powershell
-python -m self_play --games 100 --simulations 50 --checkpoint checkpoints/best.pt
-python -m train --epochs 10 --save-path checkpoints/candidate.pt
-python -m arena --candidate checkpoints/candidate.pt --best checkpoints/best.pt --games 20 --simulations 50 --threshold 0.55
-```
-
-Ý nghĩa:
-
-- `candidate.pt` là model mới;
-- `best.pt` là model cũ tốt nhất;
-- nếu candidate thắng ít nhất `55%` các ván quyết định thì được copy thành `best.pt`;
-- nếu không đủ, giữ lại `best.pt` cũ.
-
-## 16. GUI
+## GUI
 
 Mở giao diện chơi với agent:
 
 ```powershell
 python -m play_gui
-```
-
-Nếu đang đứng trong folder `Go_rel`:
-
-```powershell
-python -m play_gui
-```
-
-Cho hai agent tự chơi với nhau trên GUI:
-
-```powershell
-python -m play_gui --auto-play --simulations 10 --auto-delay 300
 ```
 
 Trong GUI:
@@ -538,13 +493,7 @@ Trong GUI:
 - `Simulations`: số lần MCTS search mỗi nước;
 - `Auto delay ms`: tốc độ xem hai agent tự đánh.
 
-## 17. Các lệnh thường dùng
-
-Chạy test:
-
-```powershell
-python -m unittest discover Go_rel/tests
-```
+## Các lệnh
 
 Sinh dữ liệu:
 
@@ -564,53 +513,11 @@ Auto-train liên tục:
 python -m auto_train --games 50 --simulations 50 --epochs 10
 ```
 
-Lệnh train cũng xuất biểu đồ:
-
-```text
-results/training_losses.png
-```
-
-Mặc định `train.py` sẽ cố gắng load checkpoint phù hợp để train tiếp, thay vì luôn học lại từ đầu. Nếu muốn chỉ rõ checkpoint ban đầu:
-
-```powershell
-python -m train --epochs 10 --init-checkpoint checkpoints/best.pt --save-path checkpoints/candidate.pt
-```
-
 Evaluate:
 
 ```powershell
 python -m evaluate --games 10 --simulations 50
 ```
-
-Chơi terminal:
-
-```powershell
-python -m play_cli --simulations 50
-```
-
-Chơi GUI:
-
-```powershell
-python -m play_gui --simulations 25
-```
-
-Candidate đấu với best:
-
-```powershell
-python -m arena --games 20 --simulations 50
-```
-
-Giảm việc agent pass quá sớm:
-
-```powershell
-python -m self_play --games 100 --simulations 50 --suppress-pass-until 70
-python -m evaluate --games 10 --simulations 50 --suppress-pass-until 70
-python -m play_gui --auto-play --simulations 10 --suppress-pass-until 70
-```
-
-Với bàn 9x9 có 81 giao điểm, `--suppress-pass-until 70` chỉ áp dụng trong MCTS/self-play/agent để tránh dữ liệu ban đầu dạy model pass quá sớm. Environment vẫn giữ luật Go thật: pass luôn là nước hợp lệ.
-
-## 18. Lưu ý về chất lượng agent
 
 Pipeline hiện tại:
 
